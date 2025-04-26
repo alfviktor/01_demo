@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Image from 'next/image';
 import {
   Dialog,
   DialogContent,
@@ -80,7 +81,7 @@ export default function SettingsDialog({
     return () => {
       mounted = false;
     };
-  }, [open]);
+  }, [open, db]);
 
   const handleDeleteChats = async () => {
     try {
@@ -185,15 +186,19 @@ export default function SettingsDialog({
           <p className="text-xs text-muted-foreground mb-2">version 0.1.0</p>
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">Made by</span>
-            <img
+            <Image
               src="/images/logo_dark.png"
               alt="Mainframe logo"
-              className="h-4 dark:hidden"
+              width={45}
+              height={16}
+              className="dark:hidden"
             />
-            <img
+            <Image
               src="/images/logo_light.png"
               alt="Mainframe logo"
-              className="h-4 hidden dark:block"
+              width={45}
+              height={16}
+              className="hidden dark:block"
             />
             <span className="text-xs text-muted-foreground">Mainframe</span>
           </div>

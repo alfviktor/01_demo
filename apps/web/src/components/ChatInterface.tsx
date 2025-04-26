@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { useChat } from "ai/react";
+import { useChat, type Message as AiMessage } from "ai/react";
 import {
   Menu,
   Paperclip,
@@ -9,6 +9,9 @@ import {
   Plus,
   Cog,
   MessageCircleWarning,
+  BookOpen,
+  Copy,
+  CheckCheck,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -20,10 +23,12 @@ import MoonPhaseIcon from "@/components/icons/MoonPhaseIcon";
 import { getCurrentMoonPhase } from "@/lib/utils";
 import SettingsDialog from "@/components/SettingsDialog";
 import { IndexedDBAdapter } from "@/lib/indexeddb";
-import type { Message as AiMessage } from "ai";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import readPDFText from "react-pdftotext";
 import { ChatDrawer } from "@/components/ChatDrawer";
+import { ShimmerText } from "@/components/ShimmerText";
+import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { nightOwl } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 
 const db = new IndexedDBAdapter();
 
@@ -48,7 +53,89 @@ const ALLOWED_FILE_TYPES = [
   "application/pdf",
 ];
 
+interface CodeBlockType {
+  language: string;
+  code: string;
+}
+
+// Function to format message content with code blocks - more reliable split-based approach
+const formatMessageContent = (content: string): React.ReactNode => {
+  if (!content) return null;
+  
+  // Simple approach - split by code block delimiter
+  const parts: React.ReactNode[] = [];
+  const segments = content.split('```');
+  
+  // If no code blocks are found, return the whole content as a paragraph
+  if (segments.length === 1) {
+    return <p>{content}</p>;
+  }
+  
+  // Process alternating text and code blocks
+  segments.forEach((segment, index) => {
+    // Even indices (0, 2, 4...) are regular text
+    if (index % 2 === 0) {
+      if (segment.trim()) {
+        parts.push(<p key={`text-${index}`}>{segment}</p>);
+      }
+    } 
+    // Odd indices (1, 3, 5...) are code blocks
+    else {
+      // Extract language from the first line
+      const lines = segment.split('\n');
+      const language = lines[0].trim() || 'text';
+      
+      // The rest is code (skip the first line which contains the language)
+      const code = lines.slice(1).join('\n').trim();
+      
+      parts.push(
+        <CodeBlock key={`code-${index}`} language={language} code={code} />
+      );
+    }
+  });
+  
+  return <>{parts}</>;
+};
+
+// Code block component with copy functionality
+function CodeBlock({ language, code }: CodeBlockType) {
+  const [copied, setCopied] = useState(false);
+  
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  
+  return (
+    <div className="relative my-3 bg-gray-900 rounded-md overflow-hidden">
+      <div className="flex justify-between items-center px-4 py-1 bg-gray-800 text-xs text-gray-400 border-b border-gray-700">
+        <span>{language}</span>
+        <button 
+          onClick={copyToClipboard}
+          className="flex items-center gap-1 hover:text-gray-200 transition-colors duration-200"
+        >
+          {copied ? <CheckCheck className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+          <span>{copied ? 'Copied!' : 'Copy'}</span>
+        </button>
+      </div>
+      <div className="p-4 overflow-x-auto">
+        <SyntaxHighlighter
+          language={language}
+          style={nightOwl}
+          customStyle={{ margin: 0, background: 'transparent' }}
+          codeTagProps={{ style: { fontFamily: 'monospace' } }}
+        >
+          {code}
+        </SyntaxHighlighter>
+      </div>
+    </div>
+  );
+}
+
 export function ChatInterface({ convo }: ChatInterfaceProps) {
+  console.log("[ChatInterface] Component Rendering");
+
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [showSettingsAlert, setShowSettingsAlert] = useState(false);
   const { isSidebarOpen, toggleSidebar } = useSidebar();
@@ -60,22 +147,47 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
     convo || null
   );
   const [attachedFileName, setAttachedFileName] = useState<string | null>(null);
+  const [showThinkingEffect, setShowThinkingEffect] = useState(false);
+  const [isAwaitingAssistant, setIsAwaitingAssistant] = useState(false);
 
-  const [customEndpointSettings, setCustomEndpointSettings] = useState<
-    | {
-        endpoint?: string;
-        modelName?: string;
-        apiKey?: string;
-      }
-    | undefined
-  >(undefined);
+  const [customEndpointSettings, setCustomEndpointSettings] = useState({
+    endpoint: process.env.NEXT_PUBLIC_RAGIE_API_ENDPOINT || "",
+    apiKey: "", // Never store API keys directly in frontend state for production
+    modelName: process.env.NEXT_PUBLIC_OPENAI_MODEL_NAME || "o4-mini", // Default to o4-mini
+    partition: process.env.NEXT_PUBLIC_RAGIE_PARTITION || "",
+  });
 
   useEffect(() => {
     db.getCustomEndpoint().then((endpointSettings) => {
-      setCustomEndpointSettings(endpointSettings);
-      setShowSettingsAlert(
-        !endpointSettings?.endpoint || !endpointSettings?.modelName
-      );
+      // If no settings found (or incomplete), set default values that use our server API
+      if (!endpointSettings?.endpoint || !endpointSettings?.modelName) {
+        // Set default values that will use the server-side API (which uses env vars)
+        const defaultSettings = {
+          endpoint: "/api/chat", // Use relative path to our own API
+          modelName: process.env.NEXT_PUBLIC_OPENAI_MODEL_NAME || "o4-mini",  // Use default model
+          apiKey: "",            // API key not needed for server-side endpoint
+          partition: process.env.NEXT_PUBLIC_RAGIE_PARTITION || "", // Add default partition
+        };
+        
+        // Save default settings to IndexedDB
+        db.setCustomEndpoint(
+          defaultSettings.endpoint,
+          defaultSettings.modelName,
+          defaultSettings.apiKey
+        ).then(() => {
+          // After saving, update state with these values
+          setCustomEndpointSettings(defaultSettings);
+          setShowSettingsAlert(false);
+        });
+      } else {
+        // Ensure loaded settings include all properties, providing defaults if missing
+        setCustomEndpointSettings({
+          endpoint: endpointSettings.endpoint || "/api/chat",
+          modelName: process.env.NEXT_PUBLIC_OPENAI_MODEL_NAME || "o4-mini", // Force default
+          apiKey: endpointSettings.apiKey || "",
+          partition: (endpointSettings as Partial<{partition: string}>).partition || process.env.NEXT_PUBLIC_RAGIE_PARTITION || "", 
+        });
+      }
     });
   }, []);
 
@@ -96,7 +208,7 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
     }
   }, [convo]);
 
-  const { messages, input, handleInputChange, handleSubmit, isLoading } =
+  const { messages, input, handleInputChange, handleSubmit, isLoading, data, setMessages } =
     useChat({
       initialMessages: convo?.messages || [],
       body: {
@@ -104,6 +216,9 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
         customEndpointSettings,
       },
       id: conversationId || "new",
+      onResponse: () => {
+        console.log("[ChatInterface] onResponse: streaming started");
+      },
       onFinish: async (message) => {
         if (!conversationId) return;
         try {
@@ -116,8 +231,48 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
         } catch (error) {
           console.error("Failed to save assistant message:", error);
         }
+        // Reset all states after completion
+        console.log("[ChatInterface] onFinish: Setting showThinkingEffect to false");
+        setIsAwaitingAssistant(false);
       },
     });
+
+  interface DataItem { // Define type for data items from useChat
+    sources?: string[];
+  }
+  const [messageSources, setMessageSources] = useState<Record<string, string[]>>({});
+
+  useEffect(() => {
+    if (data && Array.isArray(data)) {
+      // Check item type before processing to satisfy JSONValue[] type
+      data.forEach((item) => { 
+        if (typeof item === 'object' && item !== null && 'sources' in item) {
+          const dataItem = item as DataItem; // Assert type after check
+          if (dataItem.sources && Array.isArray(dataItem.sources) && messages.length > 0) {
+            const lastMessageId = messages[messages.length - 1].id;
+            if (lastMessageId) {
+              // Ensure the assigned value is strictly string[]
+              const sources = dataItem.sources as string[]; 
+              setMessageSources(prevSources => ({
+                ...prevSources,
+                [lastMessageId]: sources, 
+              }));
+            }
+          }
+        }
+      });
+    }
+  }, [data, messages]); // Add messages to dependency array
+
+  useEffect(() => {
+    if (isAwaitingAssistant) {
+      const last = messages[messages.length-1];
+      if (last && last.role === 'assistant' && last.content.trim().length > 0) {
+        setShowThinkingEffect(false);
+        setIsAwaitingAssistant(false);
+      }
+    }
+  }, [messages, isAwaitingAssistant]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -198,46 +353,24 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
-  const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const submitHandler = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!input.trim() || isLoading) return;
-    const userMessage = input.trim();
+    if (!input.trim()) return;
 
-    if (!conversationId) {
-      try {
-        const newConversation = await db.createConversation({
-          title: userMessage.slice(0, 40),
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        });
-        // save user message
-        await db.createMessage({
-          content: userMessage,
-          role: "user",
-          conversationId: newConversation.id,
-          createdAt: new Date(),
-        });
-        setConversationId(newConversation.id);
-        router.replace(`/c/${newConversation.id}`);
-        return;
-      } catch (error) {
-        console.error("Failed to create conversation:", error);
-      }
-    } else {
-      try {
-        // Save user message before sending to API
-        await db.createMessage({
-          content: userMessage,
-          role: "user",
-          conversationId: conversationId,
-          createdAt: new Date(),
-        });
-        handleSubmit(e);
-        clearAttachment();
-      } catch (error) {
-        console.error("Failed to save user message:", error);
-      }
-    }
+    console.log("[ChatInterface] submit: showThinkingEffect true");
+    setShowThinkingEffect(true);
+    setIsAwaitingAssistant(true);
+
+    // Insert placeholder assistant message so shimmer can render
+    const placeholderMsg: AiMessage = {
+      id: 'thinking-placeholder-' + Date.now(),
+      role: 'assistant',
+      content: '',
+      createdAt: new Date(),
+    };
+    setMessages(prev => [...prev, placeholderMsg]);
+
+    await handleSubmit(e as any);
   };
 
   const handleOpenChange = useCallback((open: boolean) => {
@@ -246,7 +379,12 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
 
   const refreshEndpointSettings = useCallback(async () => {
     const endpointSettings = await db.getCustomEndpoint();
-    setCustomEndpointSettings(endpointSettings);
+    setCustomEndpointSettings({
+      endpoint: endpointSettings.endpoint || "",
+      modelName: endpointSettings.modelName || process.env.NEXT_PUBLIC_OPENAI_MODEL_NAME || "o4-mini",
+      apiKey: endpointSettings.apiKey || "",
+      partition: (endpointSettings as Partial<{partition: string}>).partition || "", // Use Partial type assertion
+    });
   }, []);
 
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -337,7 +475,7 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
           </div>
         ) : (
           <div className="space-y-4 mb-16">
-            {messages.map((message, index) => (
+            {messages.map((message) => (
               <div
                 key={message.id}
                 className={`flex ${
@@ -351,23 +489,40 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
                       : "text-foreground"
                   }`}
                 >
-                  <p className="whitespace-pre-wrap">
-                    {message.content}
-                    {isLoading &&
-                      index === messages.length - 1 &&
-                      message.role === "assistant" &&
-                      "🌕"}
-                  </p>
+                  <div className="whitespace-pre-wrap">
+                    {formatMessageContent(message.content)}
+                    {message.role === "assistant" && messageSources[message.id] && (
+                      <div className="mt-3 pt-2 border-t border-gray-700">
+                        <div className="flex items-center gap-1 text-xs text-gray-400 mb-1">
+                          <BookOpen className="h-3 w-3" />
+                          <span>Sources</span>
+                        </div>
+                        <div className="grid gap-1">
+                          {messageSources[message.id].map((source, idx) => (
+                            <div key={idx} className="text-xs bg-gray-800/50 px-2 py-1 rounded">
+                              {source}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
+            {/* Global shimmer indicator shown while awaiting assistant tokens */}
+            {showThinkingEffect && (
+              <div className="flex justify-start">
+                <ShimmerText text="Thinking..." visible />
+              </div>
+            )}
           </div>
         )}
         <div ref={messagesEndRef} />
       </main>
 
       <div className="fixed bottom-0 w-full bg-background">
-        <form onSubmit={onSubmit} className="relative">
+        <form onSubmit={submitHandler} className="relative">
           <div className="max-w-2xl mx-auto w-full">
             <div className="flex flex-col m-4 px-2 py-1 bg-secondary rounded-3xl">
               <Textarea
@@ -383,7 +538,7 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
-                    onSubmit(e as unknown as React.FormEvent<HTMLFormElement>);
+                    submitHandler(e as unknown as React.FormEvent<HTMLFormElement>);
                   }
                 }}
                 className="w-full border-none text-foreground placeholder:text-gray-400 resize-none focus-visible:ring-0 focus-visible:ring-offset-0 min-h-[36px] align-middle shadow-none"
