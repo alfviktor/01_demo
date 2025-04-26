@@ -36,12 +36,16 @@ export async function POST(req: Request) {
   let ragieContext = "";
   let sources: string[] = []; // Array to hold source document names
 
+  // MUST FIX: Always tap RAGIE for every new user question, including follow-up questions
+  // Ensure we're using RAGIE for any user message, whether it's the first question or a follow-up
   if (userMessage && userMessage.role === 'user' && typeof userMessage.content === 'string' && ragieApiKey) {
     try {
-      console.log('Sending to RAGIE:', {
+      // Log that we're using RAGIE for this question (including follow-ups)
+      console.log('Sending to RAGIE for question/follow-up:', {
         query: userMessage.content,
         partition: partitionToUse,
-        maxChunksPerDocument: 5
+        maxChunksPerDocument: 5,
+        isFollowUp: messages.length > 1 // Identify if this is a follow-up question
       });
 
       const retrieveResult = await ragie.retrievals.retrieve({
@@ -80,6 +84,8 @@ export async function POST(req: Request) {
       ragieContext = "Context retrieval skipped (configuration missing).";
   }
 
+  // Create conversation history for context while preserving the latest user question
+  // This maintains the conversation flow while ensuring RAGIE context is applied
   const messagesForLLM: CoreMessage[] = [
     {
       role: 'system',
@@ -99,13 +105,16 @@ Context:
 ${ragieContext || 'No context provided.'}
 ---`
     },
+    // Include all previous messages to maintain conversation context
+    ...messages.slice(0, messages.length - 1),
+    // Always include the latest user message (which was sent to RAGIE)
     userMessage 
   ];
 
   // Use custom settings or fall back to environment variables / defaults
   const llmApiKey = customEndpointSettings?.apiKey || process.env.OPENAI_API_KEY;
   const llmBaseUrl = customEndpointSettings?.baseUrl || process.env.LLM_BASE_URL;
-  const llmModelName = customEndpointSettings?.modelName || 'o4-mini'; // Changed default model
+  const llmModelName = customEndpointSettings?.modelName || 'gpt-4.1'; // Changed default model
 
   console.log('Custom settings:', {
     endpoint: customEndpointSettings?.baseUrl || "[Not provided]",
@@ -145,7 +154,11 @@ ${ragieContext || 'No context provided.'}
       const stream = await streamText({
         model: openai(llmModelName), // Use the potentially updated model name
         messages: messagesForLLM, 
-        temperature: 1, // Must be 1 for o4-mini, override the SDK's default of 0
+        temperature: 1, // Official setting for gpt-4.1
+        maxTokens: 2048, // Maximum completion tokens
+        topP: 1,
+        frequencyPenalty: 0,
+        presencePenalty: 0,
         onFinish: () => {
           // Append the source documents to the stream data when the stream finishes
           data.append({ sources: sources });

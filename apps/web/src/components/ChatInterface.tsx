@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, Fragment } from "react";
 import { useChat, type Message as AiMessage } from "ai/react";
 import {
   Menu,
@@ -58,28 +58,30 @@ interface CodeBlockType {
   code: string;
 }
 
-// Function to format message content with code blocks - more reliable split-based approach
+// Enhanced Markdown renderer with support for headers, lists, emphasis, links, and code blocks
 const formatMessageContent = (content: string): React.ReactNode => {
-  if (!content) return null;
-  
-  // Simple approach - split by code block delimiter
-  const parts: React.ReactNode[] = [];
+  // First split by code blocks since they need special handling
   const segments = content.split('```');
+  const parts: React.ReactNode[] = [];
   
-  // If no code blocks are found, return the whole content as a paragraph
+  // If no code blocks are found, process the whole content for other Markdown elements
   if (segments.length === 1) {
-    return <p>{content}</p>;
+    return <div className="markdown-content">{processMarkdownText(content)}</div>;
   }
   
   // Process alternating text and code blocks
   segments.forEach((segment, index) => {
-    // Even indices (0, 2, 4...) are regular text
+    // Even indices (0, 2, 4...) are regular text - process for Markdown
     if (index % 2 === 0) {
       if (segment.trim()) {
-        parts.push(<p key={`text-${index}`}>{segment}</p>);
+        parts.push(
+          <div key={`text-${index}`} className="markdown-content">
+            {processMarkdownText(segment)}
+          </div>
+        );
       }
     } 
-    // Odd indices (1, 3, 5...) are code blocks
+    // Odd indices (1, 3, 5...) are code blocks - process with syntax highlighting
     else {
       // Extract language from the first line
       const lines = segment.split('\n');
@@ -95,6 +97,171 @@ const formatMessageContent = (content: string): React.ReactNode => {
   });
   
   return <>{parts}</>;
+};
+
+// Helper function to process Markdown text elements excluding code blocks
+const processMarkdownText = (text: string): React.ReactNode[] => {
+  const elements: React.ReactNode[] = [];
+  let currentIndex = 0;
+  
+  // Split text into lines and process each line or group of lines
+  const lines = text.split('\n');
+  
+  while (currentIndex < lines.length) {
+    const line = lines[currentIndex].trim();
+    
+    // Process headings (# Heading)
+    if (line.startsWith('#')) {
+      const level = line.match(/^#+/)?.[0].length || 1;
+      const content = line.replace(/^#+\s*/, '');
+      
+      if (level === 1) {
+        elements.push(<h1 key={`h-${currentIndex}`} className="text-2xl font-bold mt-4 mb-2">{content}</h1>);
+      } else if (level === 2) {
+        elements.push(<h2 key={`h-${currentIndex}`} className="text-xl font-bold mt-3 mb-2">{content}</h2>);
+      } else if (level === 3) {
+        elements.push(<h3 key={`h-${currentIndex}`} className="text-lg font-bold mt-2 mb-1">{content}</h3>);
+      } else {
+        elements.push(<h4 key={`h-${currentIndex}`} className="text-base font-bold mt-2 mb-1">{content}</h4>);
+      }
+      currentIndex++;
+      continue;
+    }
+    
+    // Process unordered lists (- item or * item)
+    if (line.match(/^[\-\*]\s/) || line.match(/^\d+\.\s/)) {
+      const listItems: string[] = [];
+      const isOrdered = line.match(/^\d+\.\s/) !== null;
+      
+      // Collect consecutive list items
+      while (
+        currentIndex < lines.length && 
+        (lines[currentIndex].trim().match(/^[\-\*]\s/) || lines[currentIndex].trim().match(/^\d+\.\s/))
+      ) {
+        listItems.push(lines[currentIndex].trim().replace(/^[\-\*\d\.]+\s/, ''));
+        currentIndex++;
+      }
+      
+      if (isOrdered) {
+        elements.push(
+          <ol key={`ol-${currentIndex}`} className="list-decimal pl-6 my-2">
+            {listItems.map((item, idx) => (
+              <li key={`li-${idx}`} className="my-1">{processInlineMarkdown(item)}</li>
+            ))}
+          </ol>
+        );
+      } else {
+        elements.push(
+          <ul key={`ul-${currentIndex}`} className="list-disc pl-6 my-2">
+            {listItems.map((item, idx) => (
+              <li key={`li-${idx}`} className="my-1">{processInlineMarkdown(item)}</li>
+            ))}
+          </ul>
+        );
+      }
+      continue;
+    }
+    
+    // Process blockquotes (> quote)
+    if (line.startsWith('>')) {
+      const quoteLines: string[] = [];
+      
+      // Collect consecutive blockquote lines
+      while (currentIndex < lines.length && lines[currentIndex].trim().startsWith('>')) {
+        quoteLines.push(lines[currentIndex].trim().replace(/^>\s?/, ''));
+        currentIndex++;
+      }
+      
+      elements.push(
+        <blockquote key={`quote-${currentIndex}`} className="border-l-4 border-gray-300 dark:border-gray-600 pl-4 py-1 my-2 text-gray-700 dark:text-gray-300 italic">
+          {processInlineMarkdown(quoteLines.join(' '))}
+        </blockquote>
+      );
+      continue;
+    }
+    
+    // If line is empty, add a spacing div
+    if (line === '') {
+      elements.push(<div key={`space-${currentIndex}`} className="h-2"></div>);
+      currentIndex++;
+      continue;
+    }
+    
+    // Regular paragraph with inline markdown processing
+    elements.push(
+      <p key={`p-${currentIndex}`} className="my-1">
+        {processInlineMarkdown(line)}
+      </p>
+    );
+    currentIndex++;
+  }
+  
+  return elements;
+};
+
+// Process inline Markdown elements (bold, italic, links, etc)
+const processInlineMarkdown = (text: string): React.ReactNode[] => {
+  const elements: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let currentText = text;
+  let counter = 0; // Safety counter
+  
+  // Replace bold text (**text**)
+  let boldMatch;
+  const boldRegex = /\*\*(.+?)\*\*/g;
+  while ((boldMatch = boldRegex.exec(currentText)) !== null && counter < 100) {
+    if (boldMatch.index > lastIndex) {
+      elements.push(currentText.substring(lastIndex, boldMatch.index));
+    }
+    elements.push(<strong key={`bold-${counter}`}>{boldMatch[1]}</strong>);
+    lastIndex = boldMatch.index + boldMatch[0].length;
+    counter++;
+  }
+  
+  // Add remaining text
+  if (lastIndex < currentText.length) {
+    elements.push(currentText.substring(lastIndex));
+  }
+  
+  // Convert simple links to <a> tags
+  const processedElements = elements.map((element, idx) => {
+    if (typeof element === 'string') {
+      // Process URLs
+      const parts: React.ReactNode[] = [];
+      const urlRegex = /(https?:\/\/[^\s]+)/g;
+      let lastUrlIndex = 0;
+      let urlMatch;
+      let urlCounter = 0;
+      
+      while ((urlMatch = urlRegex.exec(element)) !== null && urlCounter < 100) {
+        if (urlMatch.index > lastUrlIndex) {
+          parts.push(element.substring(lastUrlIndex, urlMatch.index));
+        }
+        parts.push(
+          <a 
+            key={`link-${urlCounter}`} 
+            href={urlMatch[1]} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="text-blue-500 hover:underline"
+          >
+            {urlMatch[1]}
+          </a>
+        );
+        lastUrlIndex = urlMatch.index + urlMatch[0].length;
+        urlCounter++;
+      }
+      
+      if (lastUrlIndex < element.length) {
+        parts.push(element.substring(lastUrlIndex));
+      }
+      
+      return parts.length > 0 ? <Fragment key={`url-wrap-${idx}`}>{parts}</Fragment> : element;
+    }
+    return element;
+  });
+  
+  return processedElements;
 };
 
 // Code block component with copy functionality
@@ -153,7 +320,7 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
   const [customEndpointSettings, setCustomEndpointSettings] = useState({
     endpoint: process.env.NEXT_PUBLIC_RAGIE_API_ENDPOINT || "",
     apiKey: "", // Never store API keys directly in frontend state for production
-    modelName: process.env.NEXT_PUBLIC_OPENAI_MODEL_NAME || "o4-mini", // Default to o4-mini
+    modelName: process.env.NEXT_PUBLIC_OPENAI_MODEL_NAME || "gpt-4.1", // Default to gpt-4.1
     partition: process.env.NEXT_PUBLIC_RAGIE_PARTITION || "",
   });
 
@@ -164,7 +331,7 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
         // Set default values that will use the server-side API (which uses env vars)
         const defaultSettings = {
           endpoint: "/api/chat", // Use relative path to our own API
-          modelName: process.env.NEXT_PUBLIC_OPENAI_MODEL_NAME || "o4-mini",  // Use default model
+          modelName: process.env.NEXT_PUBLIC_OPENAI_MODEL_NAME || "gpt-4.1",  // Use default model
           apiKey: "",            // API key not needed for server-side endpoint
           partition: process.env.NEXT_PUBLIC_RAGIE_PARTITION || "", // Add default partition
         };
@@ -183,7 +350,7 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
         // Ensure loaded settings include all properties, providing defaults if missing
         setCustomEndpointSettings({
           endpoint: endpointSettings.endpoint || "/api/chat",
-          modelName: process.env.NEXT_PUBLIC_OPENAI_MODEL_NAME || "o4-mini", // Force default
+          modelName: process.env.NEXT_PUBLIC_OPENAI_MODEL_NAME || "gpt-4.1", // Force default
           apiKey: endpointSettings.apiKey || "",
           partition: (endpointSettings as Partial<{partition: string}>).partition || process.env.NEXT_PUBLIC_RAGIE_PARTITION || "", 
         });
@@ -218,6 +385,9 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
       id: conversationId || "new",
       onResponse: () => {
         console.log("[ChatInterface] onResponse: streaming started");
+        setIsStreaming(true);
+        // Do an initial scroll to the bottom when streaming starts (one time only)
+        scrollToBottom(true);
       },
       onFinish: async (message) => {
         if (!conversationId) return;
@@ -234,6 +404,7 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
         // Reset all states after completion
         console.log("[ChatInterface] onFinish: Setting showThinkingEffect to false");
         setIsAwaitingAssistant(false);
+        setIsStreaming(false);
       },
     });
 
@@ -328,15 +499,31 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
     }
   };
 
-  const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  const [isStreaming, setIsStreaming] = useState(false);
+  
+  const scrollToBottom = useCallback((smooth = true) => {
+    messagesEndRef.current?.scrollIntoView({ 
+      behavior: smooth ? "smooth" : "auto" 
+    });
   }, []);
 
   useEffect(() => {
-    if (messages.length > 0) {
-      scrollToBottom();
+    // Only auto-scroll on these conditions to avoid constant scrolling during streaming:
+    // 1. If it's the first message added
+    // 2. If a new message is added (not just updated during streaming)
+    // 3. If streaming ends (marked by isStreaming changing to false)
+    // 4. If user sends a message (role is "user")
+    const lastMessage = messages[messages.length - 1];
+    
+    if (messages.length > 0 && (
+      messages.length === 1 ||
+      lastMessage?.role === "user" ||
+      !isStreaming
+    )) {
+      // Use immediate scrolling for user messages, smooth for others
+      scrollToBottom(lastMessage?.role !== "user");
     }
-  }, [messages, scrollToBottom]);
+  }, [messages, scrollToBottom, isStreaming]);
 
   useEffect(() => {
     if (conversationId) {
@@ -381,7 +568,7 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
     const endpointSettings = await db.getCustomEndpoint();
     setCustomEndpointSettings({
       endpoint: endpointSettings.endpoint || "",
-      modelName: endpointSettings.modelName || process.env.NEXT_PUBLIC_OPENAI_MODEL_NAME || "o4-mini",
+      modelName: endpointSettings.modelName || process.env.NEXT_PUBLIC_OPENAI_MODEL_NAME || "gpt-4.1",
       apiKey: endpointSettings.apiKey || "",
       partition: (endpointSettings as Partial<{partition: string}>).partition || "", // Use Partial type assertion
     });
