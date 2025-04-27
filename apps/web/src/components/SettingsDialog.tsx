@@ -186,21 +186,9 @@ export default function SettingsDialog({
           <p className="text-xs text-muted-foreground mb-2">version 0.1.0</p>
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">Made by</span>
-            <Image
-              src="/images/logo_dark.png"
-              alt="Mainframe logo"
-              width={45}
-              height={16}
-              className="dark:hidden"
-            />
-            <Image
-              src="/images/logo_light.png"
-              alt="Mainframe logo"
-              width={45}
-              height={16}
-              className="hidden dark:block"
-            />
-            <span className="text-xs text-muted-foreground">Mainframe</span>
+            <a href="https://www.01.inc/" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 hover:underline">
+              Zero One Labs
+            </a>
           </div>
         </div>
       </div>
