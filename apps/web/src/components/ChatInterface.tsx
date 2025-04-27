@@ -15,9 +15,6 @@ import {
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import type { Conversation } from "@fullmoon/database";
 import { useSidebar } from "@/contexts/SidebarContext";
 import MoonPhaseIcon from "@/components/icons/MoonPhaseIcon";
 import { getCurrentMoonPhase } from "@/lib/utils";
@@ -29,6 +26,8 @@ import { ChatDrawer } from "@/components/ChatDrawer";
 import { ShimmerText } from "@/components/ShimmerText";
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { nightOwl } from 'react-syntax-highlighter/dist/cjs/styles/prism';
+import Link from 'next/link';
+import { Conversation } from "@fullmoon/database";
 
 const db = new IndexedDBAdapter();
 
@@ -203,7 +202,7 @@ const processMarkdownText = (text: string): React.ReactNode[] => {
 const processInlineMarkdown = (text: string): React.ReactNode[] => {
   const elements: React.ReactNode[] = [];
   let lastIndex = 0;
-  let currentText = text;
+  const currentText = text; // Fix: Use const as currentText is not reassigned
   let counter = 0; // Safety counter
   
   // Replace bold text (**text**)
@@ -306,7 +305,6 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [showSettingsAlert, setShowSettingsAlert] = useState(false);
   const { isSidebarOpen, toggleSidebar } = useSidebar();
-  const router = useRouter();
   const [conversationId, setConversationId] = useState<string | null>(
     convo?.id || null
   );
@@ -325,38 +323,39 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
   });
 
   useEffect(() => {
-    db.getCustomEndpoint().then((endpointSettings) => {
-      // If no settings found (or incomplete), set default values that use our server API
-      if (!endpointSettings?.endpoint || !endpointSettings?.modelName) {
-        // Set default values that will use the server-side API (which uses env vars)
+    db.getCustomEndpoint().then((dbSettings) => {
+      // Determine partition first from env var or existing state
+      const initialPartition = customEndpointSettings.partition || process.env.NEXT_PUBLIC_RAGIE_PARTITION || "";
+
+      // If no DB settings found (or incomplete), set defaults using server API
+      if (!dbSettings?.endpoint || !dbSettings?.modelName) {
         const defaultSettings = {
-          endpoint: "/api/chat", // Use relative path to our own API
-          modelName: process.env.NEXT_PUBLIC_OPENAI_MODEL_NAME || "gpt-4.1",  // Use default model
-          apiKey: "",            // API key not needed for server-side endpoint
-          partition: process.env.NEXT_PUBLIC_RAGIE_PARTITION || "", // Add default partition
+          endpoint: "/api/chat", // Use server API route
+          modelName: process.env.NEXT_PUBLIC_OPENAI_MODEL_NAME || "gpt-4.1",
+          apiKey: "", // API key handled by server
+          partition: initialPartition, // Use determined partition
         };
-        
-        // Save default settings to IndexedDB
+        // Save settings to DB (excluding partition, which isn't stored there)
         db.setCustomEndpoint(
           defaultSettings.endpoint,
           defaultSettings.modelName,
           defaultSettings.apiKey
         ).then(() => {
-          // After saving, update state with these values
-          setCustomEndpointSettings(defaultSettings);
-          setShowSettingsAlert(false);
+          setCustomEndpointSettings(defaultSettings); // Update state
+          setShowSettingsAlert(false); // Hide alert after setting defaults
         });
       } else {
-        // Ensure loaded settings include all properties, providing defaults if missing
+        // Use settings from DB, but keep the determined partition
         setCustomEndpointSettings({
-          endpoint: endpointSettings.endpoint || "/api/chat",
-          modelName: process.env.NEXT_PUBLIC_OPENAI_MODEL_NAME || "gpt-4.1", // Force default
-          apiKey: endpointSettings.apiKey || "",
-          partition: (endpointSettings as Partial<{partition: string}>).partition || process.env.NEXT_PUBLIC_RAGIE_PARTITION || "", 
+          endpoint: dbSettings.endpoint,
+          modelName: dbSettings.modelName,
+          apiKey: dbSettings.apiKey || "",
+          partition: initialPartition, // Ensure partition isn't overwritten by lack of DB value
         });
       }
     });
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run only once on mount
 
   useEffect(() => {
     setShowSettingsAlert(
@@ -408,43 +407,6 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
       },
     });
 
-  interface DataItem { // Define type for data items from useChat
-    sources?: string[];
-  }
-  const [messageSources, setMessageSources] = useState<Record<string, string[]>>({});
-
-  useEffect(() => {
-    if (data && Array.isArray(data)) {
-      // Check item type before processing to satisfy JSONValue[] type
-      data.forEach((item) => { 
-        if (typeof item === 'object' && item !== null && 'sources' in item) {
-          const dataItem = item as DataItem; // Assert type after check
-          if (dataItem.sources && Array.isArray(dataItem.sources) && messages.length > 0) {
-            const lastMessageId = messages[messages.length - 1].id;
-            if (lastMessageId) {
-              // Ensure the assigned value is strictly string[]
-              const sources = dataItem.sources as string[]; 
-              setMessageSources(prevSources => ({
-                ...prevSources,
-                [lastMessageId]: sources, 
-              }));
-            }
-          }
-        }
-      });
-    }
-  }, [data, messages]); // Add messages to dependency array
-
-  useEffect(() => {
-    if (isAwaitingAssistant) {
-      const last = messages[messages.length-1];
-      if (last && last.role === 'assistant' && last.content.trim().length > 0) {
-        setShowThinkingEffect(false);
-        setIsAwaitingAssistant(false);
-      }
-    }
-  }, [messages, isAwaitingAssistant]);
-
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -490,10 +452,26 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
   };
 
   const clearAttachment = () => {
+    const fileNameToClear = attachedFileName; // Capture name before clearing state
     setAttachedFileName(null);
-    handleInputChange({
-      target: { value: "" },
-    } as React.ChangeEvent<HTMLTextAreaElement>);
+    // Clear the input field content related to the attachment
+    // Find the start of the attachment text marker
+    const attachmentMarker = `File: ${fileNameToClear}\n\`\`\``;
+    const markerIndex = input.indexOf(attachmentMarker);
+    if (markerIndex !== -1) {
+      // Remove the marker and everything after it, trim whitespace
+      handleInputChange({
+        target: { value: input.substring(0, markerIndex).trim() },
+      } as React.ChangeEvent<HTMLTextAreaElement>);
+    } else {
+       // Fallback if marker isn't found exactly as expected (e.g., user edited it)
+       console.warn("Could not precisely find attachment text to clear.");
+       // Attempt to clear the whole input as a last resort if it only contained the file
+       if (input.startsWith(`File: ${fileNameToClear}`)) {
+           handleInputChange({ target: { value: '' } } as React.ChangeEvent<HTMLTextAreaElement>);
+       }
+    }
+    
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -565,14 +543,17 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
   }, []);
 
   const refreshEndpointSettings = useCallback(async () => {
-    const endpointSettings = await db.getCustomEndpoint();
+    const dbSettings = await db.getCustomEndpoint();
+    // Preserve the current partition (from state or env var), as DB doesn't store it
+    const currentPartition = customEndpointSettings.partition || process.env.NEXT_PUBLIC_RAGIE_PARTITION || "";
     setCustomEndpointSettings({
-      endpoint: endpointSettings.endpoint || "",
-      modelName: endpointSettings.modelName || process.env.NEXT_PUBLIC_OPENAI_MODEL_NAME || "gpt-4.1",
-      apiKey: endpointSettings.apiKey || "",
-      partition: (endpointSettings as Partial<{partition: string}>).partition || "", // Use Partial type assertion
+      endpoint: dbSettings.endpoint || "/api/chat", // Fallback to server api
+      modelName: dbSettings.modelName || process.env.NEXT_PUBLIC_OPENAI_MODEL_NAME || "gpt-4.1", // Fallback to env or hardcoded
+      apiKey: dbSettings.apiKey || "", // Fallback to empty
+      partition: currentPartition, // Use the preserved partition
     });
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Dependency array includes customEndpointSettings.partition if needed, but keeping it simple for now
 
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
@@ -584,6 +565,18 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
       toggleSidebar();
     }
   };
+
+  useEffect(() => {
+    if (isAwaitingAssistant) {
+      // Find the last message
+      const lastMessage = messages[messages.length - 1];
+      // If the last message is from the assistant and has content, hide the thinking effect
+      if (lastMessage && lastMessage.role === 'assistant' && lastMessage.content.trim().length > 0) {
+        setShowThinkingEffect(false);
+        setIsAwaitingAssistant(false); // Reset the flag
+      }
+    }
+  }, [messages, isAwaitingAssistant]); // Depends on messages and the flag
 
   return (
     <div
@@ -678,21 +671,6 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
                 >
                   <div className="whitespace-pre-wrap">
                     {formatMessageContent(message.content)}
-                    {message.role === "assistant" && messageSources[message.id] && (
-                      <div className="mt-3 pt-2 border-t border-gray-700">
-                        <div className="flex items-center gap-1 text-xs text-gray-400 mb-1">
-                          <BookOpen className="h-3 w-3" />
-                          <span>Sources</span>
-                        </div>
-                        <div className="grid gap-1">
-                          {messageSources[message.id].map((source, idx) => (
-                            <div key={idx} className="text-xs bg-gray-800/50 px-2 py-1 rounded">
-                              {source}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>
@@ -751,19 +729,15 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
                       <Paperclip className="h-3 w-3" />
                     </Button>
                     {attachedFileName && (
-                      <div className="flex items-center gap-1">
-                        <span className="text-xs text-gray-400 truncate max-w-[150px]">
-                          {attachedFileName}
-                        </span>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-4 w-4 text-gray-400 hover:text-gray-300"
-                          onClick={clearAttachment}
+                      <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-md">
+                        <span>{attachedFileName}</span>
+                        <button 
+                          onClick={clearAttachment} 
+                          className="text-red-500 hover:text-red-700"
+                          aria-label="Remove attached file"
                         >
-                          ×
-                        </Button>
+                          &times;
+                        </button>
                       </div>
                     )}
                   </div>

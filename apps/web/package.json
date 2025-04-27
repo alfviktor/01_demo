@@ -21,6 +21,7 @@
     "ai": "^4.0.11",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "exa-js": "^1.6.13",
     "idb": "^8.0.0",
     "lucide-react": "^0.464.0",
     "next": "15.0.3",
