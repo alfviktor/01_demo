@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect, Fragment } from "react";
-import { useRouter } from "next/navigation";
 import { useChat, type Message as AiMessage } from "ai/react";
 import {
   Menu,
@@ -306,7 +305,6 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [showSettingsAlert, setShowSettingsAlert] = useState(false);
   const { isSidebarOpen, toggleSidebar } = useSidebar();
-  const router = useRouter();
   const [conversationId, setConversationId] = useState<string | null>(
     convo?.id || null
   );

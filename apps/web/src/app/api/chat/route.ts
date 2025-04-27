@@ -118,7 +118,7 @@ export async function POST(req: Request) {
       console.log('Sending to RAGIE for question/follow-up:', {
         query: reformulatedQuery, // Use reformulated query
         partition: partitionToUse,
-        maxChunksPerDocument: 10,
+        maxChunksPerDocument: 20,
         isFollowUp: messages.length > 1 // Identify if this is a follow-up question
       });
 
@@ -131,7 +131,7 @@ export async function POST(req: Request) {
       retrieveResult = await ragieClient.retrievals.retrieve({
         query: reformulatedQuery, // Use reformulated query
         ...(partitionToUse ? { partition: partitionToUse } : {}),
-        maxChunksPerDocument: 10,
+        maxChunksPerDocument: 20,
       });
 
       console.log('Received from RAGIE:', JSON.stringify(retrieveResult, null, 2)); // Log the raw response
