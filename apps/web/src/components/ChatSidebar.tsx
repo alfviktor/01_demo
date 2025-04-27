@@ -56,12 +56,23 @@ export function ChatSidebar() {
             >
               <Menu className="h-3 w-3" />
             </button>
-            <Link
-              href="/"
+            <button
+              type="button"
+              onClick={async () => {
+                // Create a new conversation
+                await db.createConversation({
+                  title: "New Chat",
+                  createdAt: new Date(),
+                  updatedAt: new Date(),
+                });
+                
+                // Hard refresh the page to reset all state completely
+                window.location.href = '/';
+              }}
               className="p-2 rounded-full hover:rounded-full hover:bg-secondary/80"
             >
               <Plus className="h-3 w-3" />
-            </Link>
+            </button>
           </div>
         </div>
 

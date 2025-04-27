@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect, Fragment } from "react";
+import { useRouter } from "next/navigation";
 import { useChat, type Message as AiMessage } from "ai/react";
 import {
   Menu,
@@ -25,7 +26,8 @@ import { ChatDrawer } from "@/components/ChatDrawer";
 import { ShimmerText } from "@/components/ShimmerText";
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { nightOwl } from 'react-syntax-highlighter/dist/cjs/styles/prism';
-import Link from 'next/link';
+// Link is no longer needed since we're using button with router push
+// import Link from 'next/link';
 import { Conversation } from "@fullmoon/database";
 
 const db = new IndexedDBAdapter();
@@ -304,6 +306,7 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [showSettingsAlert, setShowSettingsAlert] = useState(false);
   const { isSidebarOpen, toggleSidebar } = useSidebar();
+  const router = useRouter();
   const [conversationId, setConversationId] = useState<string | null>(
     convo?.id || null
   );
@@ -618,9 +621,23 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
         >
           <Menu className="h-3 w-3" />
         </button>
-        <Link href="/" className="p-2 hover:rounded-full hover:bg-secondary/80">
+        <button
+          type="button"
+          onClick={async () => {
+            // Create a new conversation
+            await db.createConversation({
+              title: "New Chat",
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            });
+            
+            // Hard refresh the page to reset all state completely
+            window.location.href = '/';
+          }}
+          className="p-2 hover:rounded-full hover:bg-secondary/80"
+        >
           <Plus className="h-3 w-3" />
-        </Link>
+        </button>
       </div>
 
       <main className="w-full max-w-2xl p-4 mt-16 mb-16">
