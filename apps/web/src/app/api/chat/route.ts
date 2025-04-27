@@ -84,8 +84,7 @@ export async function POST(req: Request) {
   const reformulatePrompt: CoreMessage[] = [
     { 
       role: 'system', 
-      content: `You are an expert query reformulator working with Ben Wilson's 'How To Take Over The World' podcast knowledge base. Transform user questions into precise, searchable queries that will extract relevant historical insights, leadership strategies, and biographical details about influential figures like Napoleon, Caesar, Edison, and Jobs. Focus on extracting core intent and specific historical references. Output *only* the reformulated query, nothing else.` 
-      content: `You are an expert query reformulator working with Ben Wilson's 'How To Take Over The World' podcast knowledge base. Transform user questions into precise, searchable queries that will extract relevant historical insights, leadership strategies, and biographical details about influential figures like Napoleon, Caesar, Edison, and Jobs. Focus on extracting core intent and specific historical references. Output *only* the reformulated query, nothing else.` 
+      content: `You are an expert query reformulator working with Ben Wilson's 'How To Take Over The World' podcast knowledge base. Transform user questions into precise, searchable queries that will extract relevant historical insights, leadership strategies, and biographical details about influential figures like Napoleon, Caesar, Edison, and Jobs. Focus on extracting core intent and specific historical references. Output *only* the reformulated query, nothing else.`,
     },
     { role: 'user', content: userMessage.content }
   ];
