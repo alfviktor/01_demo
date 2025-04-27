@@ -35,12 +35,8 @@ console.log("Environment variables available:", {
 });
 
 // Initialize RAGIE client with API key
-const customRagieApiKey = process.env.RAGIE_API_KEY;
-const customRagieEndpoint = process.env.RAGIE_API_ENDPOINT;
-const customRagiePartition = process.env.RAGIE_PARTITION;
-
-const ragieApiKey = customRagieApiKey || process.env.RAGIE_API_KEY;
-// These values are accessed via environment variables directly when needed
+const ragieApiKey = process.env.RAGIE_API_KEY; // Directly from environment
+// Other RAGIE variables (endpoint, partition) are accessed directly via process.env where needed
 
 const exaApiKey = process.env.YOUR_EXA_API_KEY; // Use the name from .env
 const exa = exaApiKey ? new Exa(exaApiKey) : null;
