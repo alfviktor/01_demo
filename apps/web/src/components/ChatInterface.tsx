@@ -9,7 +9,6 @@ import {
   Plus,
   Cog,
   MessageCircleWarning,
-  BookOpen,
   Copy,
   CheckCheck,
 } from "lucide-react";
@@ -374,7 +373,7 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
     }
   }, [convo]);
 
-  const { messages, input, handleInputChange, handleSubmit, isLoading, data, setMessages } =
+  const { messages, input, handleInputChange, handleSubmit, isLoading, setMessages } =
     useChat({
       initialMessages: convo?.messages || [],
       body: {
@@ -535,7 +534,7 @@ export function ChatInterface({ convo }: ChatInterfaceProps) {
     };
     setMessages(prev => [...prev, placeholderMsg]);
 
-    await handleSubmit(e as any);
+    await handleSubmit(e as React.FormEvent<HTMLFormElement>);
   };
 
   const handleOpenChange = useCallback((open: boolean) => {

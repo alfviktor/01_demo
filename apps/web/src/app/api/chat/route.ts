@@ -1,5 +1,5 @@
 import { createOpenAI } from "@ai-sdk/openai";
-import { streamText, generateText, CoreMessage, StreamData, CoreTool } from "ai"; 
+import { streamText, generateText, CoreMessage, StreamData } from "ai"; 
 import { NextResponse } from 'next/server'; 
 import { Ragie } from "ragie"; 
 import Exa from 'exa-js';
@@ -17,8 +17,8 @@ interface RagieRetrieveResult {
   // Add other potential fields if they exist
 }
 
-// Define interface for custom settings if not already defined elsewhere
-interface CustomEndpointSettings {
+// Define interface for custom settings passed from frontend
+export interface CustomEndpointSettings {
   apiKey?: string;
   baseUrl?: string;
   modelName?: string;
@@ -40,8 +40,7 @@ const customRagieEndpoint = process.env.RAGIE_API_ENDPOINT;
 const customRagiePartition = process.env.RAGIE_PARTITION;
 
 const ragieApiKey = customRagieApiKey || process.env.RAGIE_API_KEY;
-const ragieApiEndpoint = customRagieEndpoint || process.env.RAGIE_API_ENDPOINT || 'https://api.ragie.ai';
-const partitionToUse = customRagiePartition || process.env.RAGIE_PARTITION;
+// These values are accessed via environment variables directly when needed
 
 const exaApiKey = process.env.YOUR_EXA_API_KEY; // Use the name from .env
 const exa = exaApiKey ? new Exa(exaApiKey) : null;
@@ -128,7 +127,7 @@ export async function POST(req: Request) {
       });
 
       const ragieApiKeyFromEnv = process.env.RAGIE_API_KEY; // Use a different name to avoid conflict
-      const ragieApiUrl = process.env.RAGIE_API_URL || 'https://api.ragie.ai';
+      // Use the Ragie client which already has the proper URL configuration
       console.log(`Querying RAGIE.ai with partition \"${partitionToUse || 'default'}\"...`);
       const ragieClient = new Ragie({ auth: ragieApiKeyFromEnv }); 
 
@@ -181,8 +180,12 @@ export async function POST(req: Request) {
 
        if (exaResults.results && exaResults.results.length > 0) {
         exaContext = "\n\n## Recent Information from the Web (via Exa):\n";
-        exaResults.results.forEach((result: any, index: number) => {
-          exaContext += `\n### Source ${index + 1}: ${result.title} (${result.url})\n${result.text}\n`;
+        exaResults.results.forEach((result, index: number) => {
+          // Safely access properties that might be null
+          const title = result.title || 'Untitled';
+          const url = result.url || '#';
+          const text = result.text || '';
+          exaContext += `\n### Source ${index + 1}: ${title} (${url})\n${text}\n`;
         });
         console.log('Exa search successful.');
       } else {
@@ -263,10 +266,10 @@ ${exaContext}
     // Return the streaming response with the embedded data
     return stream.toDataStreamResponse({ data }); 
 
-  } catch (error: any) { 
+  } catch (error) { 
     console.error("Error during streaming:", error);
     // No need to close data here anymore, it's closed before the try block effectively starts streaming
-    const errorMessage = error.message || "An unknown error occurred";
+    const errorMessage = error instanceof Error ? error.message : "An unknown error occurred";
     // Ensure a response is always returned, even on error
     return new NextResponse(JSON.stringify({ error: errorMessage }), { status: 500 });
   }
